@@ -51,19 +51,19 @@ def Generator(n_samples, z, noise=None):
         noise = tf.random_normal([n_samples, 32])
 
     output = lib.ops.conv2d.Conv2D('Generator.1', 3, DIM, 4, z, stride=2)
-    output = lib.ops.batchnorm.Batchnorm('Generator.BN11', [0], output)
+    output = lib.ops.batchnorm.Batchnorm('Generator.BN11', [0,2,3], output)
     output = LeakyReLU(output)
 
     output = lib.ops.conv2d.Conv2D('Generator.11', DIM, DIM, 4, output, stride=2)
-    output = lib.ops.batchnorm.Batchnorm('Generator.BN12', [0], output)
+    output = lib.ops.batchnorm.Batchnorm('Generator.BN12', [0,2,3], output)
     output = LeakyReLU(output)
 
     output = lib.ops.conv2d.Conv2D('Generator.11', DIM, DIM, 3, output, stride=2)
-    output = lib.ops.batchnorm.Batchnorm('Generator.BN13', [0], output)
+    output = lib.ops.batchnorm.Batchnorm('Generator.BN13', [0,2,3], output)
     output = LeakyReLU(output)
 
     output = lib.ops.conv2d.Conv2D('Generator.11', DIM, 4*DIM, 3, output, stride=2)
-    output = lib.ops.batchnorm.Batchnorm('Generator.BN14', [0], output)
+    output = lib.ops.batchnorm.Batchnorm('Generator.BN14', [0,2,3], output)
     output = tf.nn.relu(output)
     output = tf.reshape(output, [BATCH_SIZE, 4*DIM, 4, 4])
 

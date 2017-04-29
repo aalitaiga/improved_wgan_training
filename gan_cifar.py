@@ -22,7 +22,7 @@ if not os.path.exists(path):
     os.makedirs(path)
 
 perso = '/Users/Adrien/Repositories/IFT6266h17/'
-server = 'Tmp/alitaiga/ift6266/'
+server = '/Tmp/alitaiga/ift6266/'
 path = path
 
 MODE = 'wgan-gp' # Valid options are dcgan, wgan, or wgan-gp
@@ -131,7 +131,11 @@ disc_cost = tf.reduce_mean(disc_fake) - tf.reduce_mean(disc_real)
 
 # Gradient penalty
 alpha = tf.random_uniform(
+<<<<<<< HEAD
+    shape=[BATCH_SIZE,1,1,1],
+=======
     shape=[BATCH_SIZE,1, 1, 1], 
+>>>>>>> 382104b5ea18e3a75a086f37443cf16e31873ea5
     minval=0.,
     maxval=1.
 )
@@ -154,8 +158,8 @@ def generate_image(itera, ext):
     lib.save_images.save_images(samples.reshape((BATCH_SIZE, 3, 64, 64)), 'u/alitaiga/repositories/samples/'+'mscoc_samples_{}.jpg'.format(itera))
 
 # Dataset iterators
-coco_train = H5PYDataset(path + 'coco_cropped.h5', which_sets=('train',))
-coco_test = H5PYDataset(path + 'coco_cropped.h5', which_sets=('valid',))
+coco_train = H5PYDataset(server + 'coco_cropped.h5', which_sets=('train',))
+coco_test = H5PYDataset(server + 'coco_cropped.h5', which_sets=('valid',))
 
 train_stream = DataStream(
     coco_train,

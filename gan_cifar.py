@@ -22,6 +22,7 @@ if not os.path.exists(path):
     os.makedirs(path)
 
 perso = '/Users/Adrien/Repositories/IFT6266h17/'
+server = 'Tmp/alitaiga/ift6266/'
 path = path
 
 MODE = 'wgan-gp' # Valid options are dcgan, wgan, or wgan-gp
@@ -64,7 +65,7 @@ def Generator(n_samples, z, noise=None):
     output = lib.ops.conv2d.Conv2D('Generator.11', DIM, 4*DIM, 3, output, stride=2)
     output = lib.ops.batchnorm.Batchnorm('Generator.BN14', [0], output)
     output = tf.nn.relu(output)
-    output = tf.reshape(output, [-1, 4*DIM, 4, 4])
+    output = tf.reshape(output, [BATCH_SIZE, 4*DIM, 4, 4])
 
     output = lib.ops.deconv2d.Deconv2D('Generator.2', 4*DIM, 2*DIM, 5, output)
     output = lib.ops.batchnorm.Batchnorm('Generator.BN2', [0,2,3], output)
@@ -74,7 +75,7 @@ def Generator(n_samples, z, noise=None):
     output = lib.ops.batchnorm.Batchnorm('Generator.BN3', [0,2,3], output)
     output = tf.nn.relu(output)
 
-    output = lib.ops.deconv2d.Deconv2D('Generator.4', 2*DIM, DIM, 5, output)
+    output = lib.ops.deconv2d.Deconv2D('Generator.4', DIM, DIM, 5, output)
     output = lib.ops.batchnorm.Batchnorm('Generator.BN4', [0,2,3], output)
     output = tf.nn.relu(output)
 
@@ -88,7 +89,7 @@ def Discriminator(output):
     output = lib.ops.conv2d.Conv2D('Discriminator.1', 3, DIM, 5, output, stride=2)
     output = LeakyReLU(output)
 
-    output = lib.ops.conv2d.Conv2D('Discriminator.15', 3, DIM, 5, output, stride=2)
+    output = lib.ops.conv2d.Conv2D('Discriminator.15', DIM, DIM, 5, output, stride=2)
     output = LeakyReLU(output)
 
     output = lib.ops.conv2d.Conv2D('Discriminator.2', DIM, 2*DIM, 5, output, stride=2)
@@ -101,22 +102,23 @@ def Discriminator(output):
         output = lib.ops.batchnorm.Batchnorm('Discriminator.BN3', [0,2,3], output)
     output = LeakyReLU(output)
 
-    output = tf.reshape(output, [-1, 4*4*4*DIM])
+    output = tf.reshape(output, [BATCH_SIZE, 4*4*4*DIM])
     output = lib.ops.linear.Linear('Discriminator.Output', 4*4*4*DIM, 1, output)
 
-    return tf.reshape(output, [-1])
+    return tf.reshape(output, [BATCH_SIZE])
 
 real_data_center = tf.placeholder(tf.int32, shape=[BATCH_SIZE, 3, 32, 32])
 real_data_int = tf.placeholder(tf.int32, shape=[BATCH_SIZE, 3, 64, 64])
-real_data = 2*((tf.cast(real_data_int, tf.float32)/255.)-.5)
+real_data_int = 2*((tf.cast(real_data_int, tf.float32)/255.)-.5)
 real_data_center = 2*((tf.cast(real_data_center, tf.float32)/255.)-.5)
 
-fake_data = Generator(BATCH_SIZE, z=real_data)
+fake_center = Generator(BATCH_SIZE, z=real_data_int)
 
-real_data[:, 16:48, 16:48, :] = real_data_center
+padding = [[0, 0], [0, 0], [16, 16], [16, 16]]
+real_data = real_data_int + tf.pad(real_data_center, padding, "CONSTANT") 
 disc_real = Discriminator(real_data)
 
-real_data[:, 16:48, 16:48, :] = fake_data
+fake_data = real_data_int + tf.pad(fake_center, padding, "CONSTANT") 
 disc_fake = Discriminator(fake_data)
 
 gen_params = lib.params_with_name('Generator')
@@ -129,7 +131,7 @@ disc_cost = tf.reduce_mean(disc_fake) - tf.reduce_mean(disc_real)
 
 # Gradient penalty
 alpha = tf.random_uniform(
-    shape=[BATCH_SIZE,1], 
+    shape=[BATCH_SIZE,1, 1, 1], 
     minval=0.,
     maxval=1.
 )
@@ -149,7 +151,7 @@ disc_train_op = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0.5, beta2=0.9)
 def generate_image(itera, ext):
     samples = session.run([fake_data], feed_dict={real_data_int: ext})
     samples = ((samples+1.)*(255./2)).astype('int32')
-    lib.save_images.save_images(samples.reshape((32, 3, 32, 32)), 'u/alitaiga/repositories/samples/'+'mscoc_samples_{}.jpg'.format(itera))
+    lib.save_images.save_images(samples.reshape((BATCH_SIZE, 3, 64, 64)), 'u/alitaiga/repositories/samples/'+'mscoc_samples_{}.jpg'.format(itera))
 
 # Dataset iterators
 coco_train = H5PYDataset(path + 'coco_cropped.h5', which_sets=('train',))
@@ -173,6 +175,7 @@ saver = tf.train.Saver()
 with tf.Session() as session:
     session.run(tf.initialize_all_variables())
     gen = train_stream.get_epoch_iterator()
+    print "Starting training"
 
     for iteration in xrange(500000):
         start_time = time.time()

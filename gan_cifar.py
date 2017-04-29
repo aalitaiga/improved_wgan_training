@@ -74,7 +74,7 @@ def Generator(n_samples, z, noise=None):
     output = lib.ops.batchnorm.Batchnorm('Generator.BN3', [0,2,3], output)
     output = tf.nn.relu(output)
 
-    output = lib.ops.deconv2d.Deconv2D('Generator.4', 2*DIM, DIM, 5, output)
+    output = lib.ops.deconv2d.Deconv2D('Generator.4', DIM, DIM, 5, output)
     output = lib.ops.batchnorm.Batchnorm('Generator.BN4', [0,2,3], output)
     output = tf.nn.relu(output)
 
@@ -113,10 +113,10 @@ real_data_center = 2*((tf.cast(real_data_center, tf.float32)/255.)-.5)
 
 fake_data = Generator(BATCH_SIZE, z=real_data)
 
-real_data[:, 16:48, 16:48, :] = real_data_center
+real_data[:, 16:48, 16:48, :].assign(real_data_center)
 disc_real = Discriminator(real_data)
 
-real_data[:, 16:48, 16:48, :] = fake_data
+real_data[:, 16:48, 16:48, :].assign(fake_data)
 disc_fake = Discriminator(fake_data)
 
 gen_params = lib.params_with_name('Generator')
@@ -149,7 +149,7 @@ disc_train_op = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0.5, beta2=0.9)
 def generate_image(itera, ext):
     samples = session.run([fake_data], feed_dict={real_data_int: ext})
     samples = ((samples+1.)*(255./2)).astype('int32')
-    lib.save_images.save_images(samples.reshape((32, 3, 32, 32)), 'u/alitaiga/repositories/samples/'+'mscoc_samples_{}.jpg'.format(itera))
+    lib.save_images.save_images(samples.reshape((BATCH_SIZE, 3, 64, 64)), 'u/alitaiga/repositories/samples/'+'mscoc_samples_{}.jpg'.format(itera))
 
 # Dataset iterators
 coco_train = H5PYDataset(path + 'coco_cropped.h5', which_sets=('train',))

@@ -65,7 +65,7 @@ def Generator(n_samples, z, noise=None):
     output = lib.ops.conv2d.Conv2D('Generator.11', DIM, 4*DIM, 3, output, stride=2)
     output = lib.ops.batchnorm.Batchnorm('Generator.BN14', [0], output)
     output = tf.nn.relu(output)
-    output = tf.reshape(output, [-1, 4*DIM, 4, 4])
+    output = tf.reshape(output, [BATCH_SIZE, 4*DIM, 4, 4])
 
     output = lib.ops.deconv2d.Deconv2D('Generator.2', 4*DIM, 2*DIM, 5, output)
     output = lib.ops.batchnorm.Batchnorm('Generator.BN2', [0,2,3], output)
@@ -102,10 +102,10 @@ def Discriminator(output):
         output = lib.ops.batchnorm.Batchnorm('Discriminator.BN3', [0,2,3], output)
     output = LeakyReLU(output)
 
-    output = tf.reshape(output, [-1, 4*4*4*DIM])
+    output = tf.reshape(output, [BATCH_SIZE, 4*4*4*DIM])
     output = lib.ops.linear.Linear('Discriminator.Output', 4*4*4*DIM, 1, output)
 
-    return tf.reshape(output, [-1])
+    return tf.reshape(output, [BATCH_SIZE])
 
 real_data_center = tf.placeholder(tf.int32, shape=[BATCH_SIZE, 3, 32, 32])
 real_data_int = tf.placeholder(tf.int32, shape=[BATCH_SIZE, 3, 64, 64])
@@ -115,10 +115,10 @@ real_data_center = 2*((tf.cast(real_data_center, tf.float32)/255.)-.5)
 fake_center = Generator(BATCH_SIZE, z=real_data_int)
 
 padding = [[0, 0], [0, 0], [16, 16], [16, 16]]
-real_data = real_data_int + tf.pad(real_data_center, padding, "CONSTANT")
+real_data = real_data_int + tf.pad(real_data_center, padding, "CONSTANT") 
 disc_real = Discriminator(real_data)
 
-fake_data = real_data_int + tf.pad(fake_center, padding, "CONSTANT")
+fake_data = real_data_int + tf.pad(fake_center, padding, "CONSTANT") 
 disc_fake = Discriminator(fake_data)
 
 gen_params = lib.params_with_name('Generator')
@@ -131,7 +131,11 @@ disc_cost = tf.reduce_mean(disc_fake) - tf.reduce_mean(disc_real)
 
 # Gradient penalty
 alpha = tf.random_uniform(
+<<<<<<< HEAD
     shape=[BATCH_SIZE,1,1,1],
+=======
+    shape=[BATCH_SIZE,1, 1, 1], 
+>>>>>>> 382104b5ea18e3a75a086f37443cf16e31873ea5
     minval=0.,
     maxval=1.
 )
@@ -175,6 +179,7 @@ saver = tf.train.Saver()
 with tf.Session() as session:
     session.run(tf.initialize_all_variables())
     gen = train_stream.get_epoch_iterator()
+    print "Starting training"
 
     for iteration in xrange(500000):
         start_time = time.time()

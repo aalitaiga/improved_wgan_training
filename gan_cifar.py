@@ -22,6 +22,7 @@ if not os.path.exists(path):
     os.makedirs(path)
 
 perso = '/Users/Adrien/Repositories/IFT6266h17/'
+server = '/Tmp/alitaiga/ift6266/'
 path = path
 
 MODE = 'wgan-gp' # Valid options are dcgan, wgan, or wgan-gp
@@ -88,7 +89,7 @@ def Discriminator(output):
     output = lib.ops.conv2d.Conv2D('Discriminator.1', 3, DIM, 5, output, stride=2)
     output = LeakyReLU(output)
 
-    output = lib.ops.conv2d.Conv2D('Discriminator.15', 3, DIM, 5, output, stride=2)
+    output = lib.ops.conv2d.Conv2D('Discriminator.15', DIM, DIM, 5, output, stride=2)
     output = LeakyReLU(output)
 
     output = lib.ops.conv2d.Conv2D('Discriminator.2', DIM, 2*DIM, 5, output, stride=2)
@@ -108,15 +109,16 @@ def Discriminator(output):
 
 real_data_center = tf.placeholder(tf.int32, shape=[BATCH_SIZE, 3, 32, 32])
 real_data_int = tf.placeholder(tf.int32, shape=[BATCH_SIZE, 3, 64, 64])
-real_data = 2*((tf.cast(real_data_int, tf.float32)/255.)-.5)
+real_data_int = 2*((tf.cast(real_data_int, tf.float32)/255.)-.5)
 real_data_center = 2*((tf.cast(real_data_center, tf.float32)/255.)-.5)
 
-fake_data = Generator(BATCH_SIZE, z=real_data)
+fake_center = Generator(BATCH_SIZE, z=real_data_int)
 
-real_data[:, 16:48, 16:48, :].assign(real_data_center)
+padding = [[0, 0], [0, 0], [16, 16], [16, 16]]
+real_data = real_data_int + tf.pad(real_data_center, padding, "CONSTANT")
 disc_real = Discriminator(real_data)
 
-real_data[:, 16:48, 16:48, :].assign(fake_data)
+fake_data = real_data_int + tf.pad(fake_center, padding, "CONSTANT")
 disc_fake = Discriminator(fake_data)
 
 gen_params = lib.params_with_name('Generator')
@@ -129,7 +131,7 @@ disc_cost = tf.reduce_mean(disc_fake) - tf.reduce_mean(disc_real)
 
 # Gradient penalty
 alpha = tf.random_uniform(
-    shape=[BATCH_SIZE,1], 
+    shape=[BATCH_SIZE,1,1,1],
     minval=0.,
     maxval=1.
 )
@@ -152,8 +154,8 @@ def generate_image(itera, ext):
     lib.save_images.save_images(samples.reshape((BATCH_SIZE, 3, 64, 64)), 'u/alitaiga/repositories/samples/'+'mscoc_samples_{}.jpg'.format(itera))
 
 # Dataset iterators
-coco_train = H5PYDataset(path + 'coco_cropped.h5', which_sets=('train',))
-coco_test = H5PYDataset(path + 'coco_cropped.h5', which_sets=('valid',))
+coco_train = H5PYDataset(server + 'coco_cropped.h5', which_sets=('train',))
+coco_test = H5PYDataset(server + 'coco_cropped.h5', which_sets=('valid',))
 
 train_stream = DataStream(
     coco_train,

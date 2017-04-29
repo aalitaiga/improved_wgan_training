@@ -1,9 +1,7 @@
-import os, sys
-sys.path.append(os.getcwd())
-
+import os
 import time
+from datetime import date
 
-import numpy as np
 import tensorflow as tf
 
 import tflib as lib
@@ -15,20 +13,23 @@ import tflib.save_images
 import tflib.cifar10
 import tflib.inception_score
 import tflib.plot
+from fuel.streams import DataStream
+from fuel.schemes import ShuffledScheme
+from fuel.datasets.hdf5 import H5PYDataset
 
-# Download CIFAR-10 (Python version) at
-# https://www.cs.toronto.edu/~kriz/cifar.html and fill in the path to the
-# extracted files here!
-DATA_DIR = ''
-if len(DATA_DIR) == 0:
-    raise Exception('Please specify path to data directory in gan_cifar.py!')
+path = '/Tmp/alitaiga/ift6266/wgan_{}'.format(date.today())
+if not os.path.exists(path):
+    os.makedirs(path)
+
+perso = '/Users/Adrien/Repositories/IFT6266h17/'
+path = path
 
 MODE = 'wgan-gp' # Valid options are dcgan, wgan, or wgan-gp
-DIM = 128 # This overfits substantially; you're probably better off with 64
+DIM = 32 # This overfits substantially; you're probably better off with 64
 LAMBDA = 10 # Gradient penalty lambda hyperparameter
 CRITIC_ITERS = 5 # How many critic iterations per generator iteration
-BATCH_SIZE = 64 # Batch size
-ITERS = 200000 # How many generator iterations to train for
+BATCH_SIZE = 32 # Batch size
+ITERS = 500000 # How many generator iterations to train for
 OUTPUT_DIM = 3072 # Number of pixels in CIFAR10 (3*32*32)
 
 lib.print_model_settings(locals().copy())
@@ -44,12 +45,24 @@ def LeakyReLULayer(name, n_in, n_out, inputs):
     output = lib.ops.linear.Linear(name+'.Linear', n_in, n_out, inputs)
     return LeakyReLU(output)
 
-def Generator(n_samples, noise=None):
+def Generator(n_samples, z, noise=None):
     if noise is None:
-        noise = tf.random_normal([n_samples, 128])
+        noise = tf.random_normal([n_samples, 32])
 
-    output = lib.ops.linear.Linear('Generator.Input', 128, 4*4*4*DIM, noise)
-    output = lib.ops.batchnorm.Batchnorm('Generator.BN1', [0], output)
+    output = lib.ops.conv2d.Conv2D('Generator.1', 3, DIM, 4, z, stride=2)
+    output = lib.ops.batchnorm.Batchnorm('Generator.BN11', [0], output)
+    output = LeakyReLU(output)
+
+    output = lib.ops.conv2d.Conv2D('Generator.11', DIM, DIM, 4, output, stride=2)
+    output = lib.ops.batchnorm.Batchnorm('Generator.BN12', [0], output)
+    output = LeakyReLU(output)
+
+    output = lib.ops.conv2d.Conv2D('Generator.11', DIM, DIM, 3, output, stride=2)
+    output = lib.ops.batchnorm.Batchnorm('Generator.BN13', [0], output)
+    output = LeakyReLU(output)
+
+    output = lib.ops.conv2d.Conv2D('Generator.11', DIM, 4*DIM, 3, output, stride=2)
+    output = lib.ops.batchnorm.Batchnorm('Generator.BN14', [0], output)
     output = tf.nn.relu(output)
     output = tf.reshape(output, [-1, 4*DIM, 4, 4])
 
@@ -61,16 +74,21 @@ def Generator(n_samples, noise=None):
     output = lib.ops.batchnorm.Batchnorm('Generator.BN3', [0,2,3], output)
     output = tf.nn.relu(output)
 
+    output = lib.ops.deconv2d.Deconv2D('Generator.4', 2*DIM, DIM, 5, output)
+    output = lib.ops.batchnorm.Batchnorm('Generator.BN4', [0,2,3], output)
+    output = tf.nn.relu(output)
+
     output = lib.ops.deconv2d.Deconv2D('Generator.5', DIM, 3, 5, output)
 
     output = tf.tanh(output)
 
-    return tf.reshape(output, [-1, OUTPUT_DIM])
+    return output
 
-def Discriminator(inputs):
-    output = tf.reshape(inputs, [-1, 3, 32, 32])
-
+def Discriminator(output):
     output = lib.ops.conv2d.Conv2D('Discriminator.1', 3, DIM, 5, output, stride=2)
+    output = LeakyReLU(output)
+
+    output = lib.ops.conv2d.Conv2D('Discriminator.15', 3, DIM, 5, output, stride=2)
     output = LeakyReLU(output)
 
     output = lib.ops.conv2d.Conv2D('Discriminator.2', DIM, 2*DIM, 5, output, stride=2)
@@ -88,132 +106,96 @@ def Discriminator(inputs):
 
     return tf.reshape(output, [-1])
 
-real_data_int = tf.placeholder(tf.int32, shape=[BATCH_SIZE, OUTPUT_DIM])
+real_data_center = tf.placeholder(tf.int32, shape=[BATCH_SIZE, 3, 32, 32])
+real_data_int = tf.placeholder(tf.int32, shape=[BATCH_SIZE, 3, 64, 64])
 real_data = 2*((tf.cast(real_data_int, tf.float32)/255.)-.5)
-fake_data = Generator(BATCH_SIZE)
+real_data_center = 2*((tf.cast(real_data_center, tf.float32)/255.)-.5)
 
+fake_data = Generator(BATCH_SIZE, z=real_data)
+
+real_data[:, 16:48, 16:48, :] = real_data_center
 disc_real = Discriminator(real_data)
+
+real_data[:, 16:48, 16:48, :] = fake_data
 disc_fake = Discriminator(fake_data)
 
 gen_params = lib.params_with_name('Generator')
 disc_params = lib.params_with_name('Discriminator')
 
-if MODE == 'wgan':
-    gen_cost = -tf.reduce_mean(disc_fake)
-    disc_cost = tf.reduce_mean(disc_fake) - tf.reduce_mean(disc_real)
 
-    gen_train_op = tf.train.RMSPropOptimizer(learning_rate=5e-5).minimize(gen_cost, var_list=gen_params)
-    disc_train_op = tf.train.RMSPropOptimizer(learning_rate=5e-5).minimize(disc_cost, var_list=disc_params)
+# Standard WGAN loss
+gen_cost = -tf.reduce_mean(disc_fake)
+disc_cost = tf.reduce_mean(disc_fake) - tf.reduce_mean(disc_real)
 
-    clip_ops = []
-    for var in disc_params:
-        clip_bounds = [-.01, .01]
-        clip_ops.append(
-            tf.assign(
-                var, 
-                tf.clip_by_value(var, clip_bounds[0], clip_bounds[1])
-            )
-        )
-    clip_disc_weights = tf.group(*clip_ops)
+# Gradient penalty
+alpha = tf.random_uniform(
+    shape=[BATCH_SIZE,1], 
+    minval=0.,
+    maxval=1.
+)
+differences = fake_data - real_data
+interpolates = real_data + (alpha*differences)
+gradients = tf.gradients(Discriminator(interpolates), [interpolates])[0]
+slopes = tf.sqrt(tf.reduce_sum(tf.square(gradients), reduction_indices=[1]))
+gradient_penalty = tf.reduce_mean((slopes-1.)**2)
+disc_cost += LAMBDA*gradient_penalty
 
-elif MODE == 'wgan-gp':
-    # Standard WGAN loss
-    gen_cost = -tf.reduce_mean(disc_fake)
-    disc_cost = tf.reduce_mean(disc_fake) - tf.reduce_mean(disc_real)
-
-    # Gradient penalty
-    alpha = tf.random_uniform(
-        shape=[BATCH_SIZE,1], 
-        minval=0.,
-        maxval=1.
-    )
-    differences = fake_data - real_data
-    interpolates = real_data + (alpha*differences)
-    gradients = tf.gradients(Discriminator(interpolates), [interpolates])[0]
-    slopes = tf.sqrt(tf.reduce_sum(tf.square(gradients), reduction_indices=[1]))
-    gradient_penalty = tf.reduce_mean((slopes-1.)**2)
-    disc_cost += LAMBDA*gradient_penalty
-
-    gen_train_op = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0.5, beta2=0.9).minimize(gen_cost, var_list=gen_params)
-    disc_train_op = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0.5, beta2=0.9).minimize(disc_cost, var_list=disc_params)
-
-elif MODE == 'dcgan':
-    gen_cost = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(disc_fake, tf.ones_like(disc_fake)))
-    disc_cost =  tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(disc_fake, tf.zeros_like(disc_fake)))
-    disc_cost += tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(disc_real, tf.ones_like(disc_real)))
-    disc_cost /= 2.
-
-    gen_train_op = tf.train.AdamOptimizer(learning_rate=2e-4, beta1=0.5).minimize(gen_cost,
-                                                                                  var_list=lib.params_with_name('Generator'))
-    disc_train_op = tf.train.AdamOptimizer(learning_rate=2e-4, beta1=0.5).minimize(disc_cost,
-                                                                                   var_list=lib.params_with_name('Discriminator.'))
+gen_train_op = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0.5, beta2=0.9).minimize(gen_cost, var_list=gen_params)
+disc_train_op = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0.5, beta2=0.9).minimize(disc_cost, var_list=disc_params)
 
 # For generating samples
-fixed_noise_128 = tf.constant(np.random.normal(size=(128, 128)).astype('float32'))
-fixed_noise_samples_128 = Generator(128, noise=fixed_noise_128)
-def generate_image(frame, true_dist):
-    samples = session.run(fixed_noise_samples_128)
+#fixed_noise_128 = tf.constant(np.random.normal(size=(128, 128)).astype('float32'))
+#fixed_noise_samples_128 = Generator(128, noise=fixed_noise_128)
+def generate_image(itera, ext):
+    samples = session.run([fake_data], feed_dict={real_data_int: ext})
     samples = ((samples+1.)*(255./2)).astype('int32')
-    lib.save_images.save_images(samples.reshape((128, 3, 32, 32)), 'samples_{}.jpg'.format(frame))
-
-# For calculating inception score
-samples_100 = Generator(100)
-def get_inception_score():
-    all_samples = []
-    for i in xrange(10):
-        all_samples.append(session.run(samples_100))
-    all_samples = np.concatenate(all_samples, axis=0)
-    all_samples = ((all_samples+1.)*(255./2)).astype('int32')
-    all_samples = all_samples.reshape((-1, 3, 32, 32)).transpose(0,2,3,1)
-    return lib.inception_score.get_inception_score(list(all_samples))
+    lib.save_images.save_images(samples.reshape((32, 3, 32, 32)), 'u/alitaiga/repositories/samples/'+'mscoc_samples_{}.jpg'.format(itera))
 
 # Dataset iterators
-train_gen, dev_gen = lib.cifar10.load(BATCH_SIZE, data_dir=DATA_DIR)
-def inf_train_gen():
-    while True:
-        for images in train_gen():
-            yield images
+coco_train = H5PYDataset(path + 'coco_cropped.h5', which_sets=('train',))
+coco_test = H5PYDataset(path + 'coco_cropped.h5', which_sets=('valid',))
+
+train_stream = DataStream(
+    coco_train,
+    iteration_scheme=ShuffledScheme(coco_train.num_examples, BATCH_SIZE)
+)
+
+test_stream = DataStream(
+    coco_test,
+    iteration_scheme=ShuffledScheme(coco_test.num_examples, BATCH_SIZE)
+)
+test_iter = test_stream.get_epoch_iterator()
+_data = next(test_iter)
+
+saver = tf.train.Saver()
 
 # Train loop
 with tf.Session() as session:
     session.run(tf.initialize_all_variables())
-    gen = inf_train_gen()
+    gen = train_stream.get_epoch_iterator()
 
-    for iteration in xrange(ITERS):
+    for iteration in xrange(500000):
         start_time = time.time()
         # Train generator
+        try:
+            for i in xrange(CRITIC_ITERS):
+                _ext, _center = next(gen)
+                if _ext.shape[0] != BATCH_SIZE:
+                    raise StopIteration
+                _disc_cost, _ = session.run([disc_cost, disc_train_op],
+                    feed_dict={real_data_int: _ext, real_data_center: _center})
+        except StopIteration:
+            gen = train_stream.get_epoch_iterator()
+            continue
+
         if iteration > 0:
-            _ = session.run(gen_train_op)
-        # Train critic
-        if MODE == 'dcgan':
-            disc_iters = 1
-        else:
-            disc_iters = CRITIC_ITERS
-        for i in xrange(disc_iters):
-            _data = gen.next()
-            _disc_cost, _ = session.run([disc_cost, disc_train_op], feed_dict={real_data_int: _data})
-            if MODE == 'wgan':
-                _ = session.run(clip_disc_weights)
+            _ = session.run([gen_train_op], feed_dict={real_data_int: _ext, real_data_center: _center})
 
-        lib.plot.plot('train disc cost', _disc_cost)
-        lib.plot.plot('time', time.time() - start_time)
-
-        # Calculate inception score every 1K iters
-        if iteration % 1000 == 999:
-            inception_score = get_inception_score()
-            lib.plot.plot('inception score', inception_score[0])
+        print 'iteration: {},  train disc cost: {}, time: {}'.format(iteration, _disc_cost, time.time() - start_time)
 
         # Calculate dev loss and generate samples every 100 iters
-        if iteration % 100 == 99:
-            dev_disc_costs = []
-            for images in dev_gen():
-                _dev_disc_cost = session.run(disc_cost, feed_dict={real_data_int: images}) 
-                dev_disc_costs.append(_dev_disc_cost)
-            lib.plot.plot('dev disc cost', np.mean(dev_disc_costs))
+        if iteration % 10000 == 0:
             generate_image(iteration, _data)
 
-        # Save logs every 100 iters
-        if (iteration < 5) or (iteration % 100 == 99):
-            lib.plot.flush()
-
-        lib.plot.tick()
+        if iteration % 5000:
+            saver.save(session, path + '/params_' + 'ift6266_gan.ckpt')

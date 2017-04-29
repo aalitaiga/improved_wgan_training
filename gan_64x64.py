@@ -484,7 +484,18 @@ with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as session:
 
 
     # Dataset iterator
-    train_gen, dev_gen = lib.small_imagenet.load(BATCH_SIZE, data_dir=DATA_DIR)
+    coco_train = H5PYDataset(server + 'coco_cropped.h5', which_sets=('train',))
+    coco_test = H5PYDataset(server + 'coco_cropped.h5', which_sets=('valid',))
+
+    train_stream = DataStream(
+        coco_train,
+        iteration_scheme=ShuffledScheme(coco_train.num_examples, BATCH_SIZE)
+    )
+
+    test_stream = DataStream(
+        coco_test,
+        iteration_scheme=ShuffledScheme(coco_test.num_examples, BATCH_SIZE)
+    )
 
     def inf_train_gen():
         while True:
